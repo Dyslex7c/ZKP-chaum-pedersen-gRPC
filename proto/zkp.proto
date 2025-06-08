@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package zkp;
+
+service ChaumPedersenService {
+    rpc InitializeProtocol(InitializeRequest) returns (InitializeResponse);
+    
+    rpc SendProofChallenge(ProofChallengeRequest) returns (ChallengeResponse);
+    
+    rpc VerifyProof(VerifyProofRequest) returns (VerifyProofResponse);
+}
+
+message InitializeRequest {
+    uint32 bit_size = 1;
+}
+
+message InitializeResponse {
+    PublicParameters params = 1;
+    Commitment commitment = 2;
+}
+
+message PublicParameters {
+    bytes p = 1;  // Sophie Germain prime (serialized BigUint)
+    bytes q = 2;  // Safe prime q = 2p + 1
+    bytes g = 3;  // Generator
+}
+
+message Commitment {
+    bytes a1 = 1;  // g^a mod q
+    bytes b1 = 2;  // g^b mod q
+    bytes c1 = 3;  // g^(ab) mod q
+}
+
+message ProofChallengeRequest {
+    bytes y1 = 1;  // g^x mod q
+    bytes y2 = 2;  // b1^x mod q
+}
+
+message ChallengeResponse {
+    bytes challenge = 1;  // Challenge value s
+}
+
+message VerifyProofRequest {
+    bytes z = 1;  // x + a*s mod (q-1)
+}
+
+message VerifyProofResponse {
+    bool verified = 1;
+    string message = 2;
+}
