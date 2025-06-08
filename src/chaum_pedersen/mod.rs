@@ -99,6 +99,7 @@ impl Prover {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Verifier {
     pub params: PublicParameters,
 }

@@ -1263,7 +1263,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zkp-chaum-pedersen-gRPC"
+name = "zkp-chaum-pedersen-grpc"
 version = "0.1.0"
 dependencies = [
  "num-bigint",

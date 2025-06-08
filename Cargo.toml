@@ -1,5 +1,5 @@
 [package]
-name = "zkp-chaum-pedersen-gRPC"
+name = "zkp-chaum-pedersen-grpc"
 version = "0.1.0"
 edition = "2024"
 
@@ -19,3 +19,7 @@ prost = "0.12"
 
 [build-dependencies]
 tonic-build = "0.10"
+
+[[bin]]
+name = "grpc-zkp-server"
+path = "src/server.rs"
