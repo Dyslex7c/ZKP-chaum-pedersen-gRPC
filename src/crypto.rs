@@ -1,12 +1,13 @@
 use rand::RngCore;
 use rand::rngs::OsRng;
-use num_bigint::RandBigInt;
+use num_bigint::{BigUint, RandBigInt};
 use num_traits::{One, Zero};
 use num_integer::Integer;
+use sha2::{Sha256, Digest};
 
 fn generate_random() -> u64 {
     let mut rng = OsRng;
-    rng.next_u64();
+    rng.next_u64()
 }
 
 fn generate_safe_prime_pair(bits: usize) -> (BigUint, BigUint) {
@@ -105,5 +106,75 @@ pub fn generate_params(bits: usize) -> (BigUint, BigUint, BigUint) {
 
 pub fn generate_random_element(q: &BigUint) -> BigUint {
     let mut rng = OsRng;
-    rng.gen_biguint_range(&BigUint::one(), q)
+    let q_minus_1 = q - &BigUint::one();
+    rng.gen_biguint_range(&BigUint::one(), &q_minus_1)
+}
+
+pub fn generate_commitment(g: &BigUint, a: &BigUint, b: &BigUint, q: &BigUint) -> (BigUint, BigUint, BigUint) {
+    let a1 = g.modpow(a, q);
+    let b1 = g.modpow(b, q);
+
+    let q_minus_1 = q - &BigUint::one();
+    let ab_mod = (a * b) % &q_minus_1;
+    let c1 = g.modpow(&ab_mod, q);
+    (a1, b1, c1)
+}
+
+pub fn generate_challenge(y1: &BigUint, y2: &BigUint, q: &BigUint) -> BigUint {
+    
+    let mut hasher = Sha256::new();
+    hasher.update(y1.to_bytes_be());
+    hasher.update(y2.to_bytes_be());
+    
+    let hash = hasher.finalize();
+    let challenge = BigUint::from_bytes_be(&hash);
+
+    challenge % q
+}
+
+pub fn compute_y1y2(x: &BigUint, g: &BigUint, b1: &BigUint, q: &BigUint) -> (BigUint, BigUint) {
+    let y1 = g.modpow(x, q);
+    let y2 = b1.modpow(x, q);
+    (y1, y2)
+}
+
+pub fn compute_z(x: &BigUint, a: &BigUint, s: &BigUint, q: &BigUint) -> BigUint {
+    let q_minus_1 = q - &BigUint::one();
+    (x + (a * s) % q_minus_1) % q_minus_1
+}
+
+pub fn verify_proof(
+    g: &BigUint,
+    b1: &BigUint,
+    y1: &BigUint,
+    y2: &BigUint,
+    a1: &BigUint,
+    c1: &BigUint,
+    s: &BigUint,
+    z: &BigUint,
+    q: &BigUint
+) -> bool {
+    // Check: g^z mod q = a1^s * y1 mod q
+    let left1 = g.modpow(z, q);
+    let right1 = (a1.modpow(s, q) * y1) % q;
+    
+    // Check: b1^z mod q = c1^s * y2 mod q  
+    let left2 = b1.modpow(z, q);
+    let right2 = (c1.modpow(s, q) * y2) % q;
+    
+    left1 == right1 && left2 == right2
+}
+
+pub fn generate_secrets(q: &BigUint) -> (BigUint, BigUint) {
+    let mut rng = OsRng;
+    let q_minus_1 = q - &BigUint::one();
+    let a = rng.gen_biguint_range(&BigUint::one(), &q_minus_1);
+    let b = rng.gen_biguint_range(&BigUint::one(), &q_minus_1);
+    (a, b)
+}
+
+pub fn generate_prover_secret(q: &BigUint) -> BigUint {
+    let mut rng = OsRng;
+    let q_minus_1 = q - &BigUint::one();
+    rng.gen_biguint_range(&BigUint::one(), &q_minus_1)
 }
