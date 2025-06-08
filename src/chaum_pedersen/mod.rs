@@ -39,7 +39,7 @@ pub struct ZKProof {
 }
 
 impl PublicParameters {
-    pub fn new(bits: usize) -> Self {
+    pub fn new(bits: u64) -> Self {
         let (p, q, g) = generate_params(bits);
         Self { p, q, g }
     }
@@ -74,7 +74,7 @@ impl Prover {
     pub fn generate_proof_challenge(&self, commitment: &Commitment) -> (ProofChallenge, BigUint) {
         let x = generate_prover_secret(&self.params.q);
         let (y1, y2) = compute_y1y2(&x, &self.params.g, &commitment.b1, &self.params.q);
-        let challenge_hash = generate_challenge(&y1, &y2, &self.params.q);
+        //let challenge_hash = generate_challenge(&y1, &y2, &self.params.q);
         
         (ProofChallenge { y1, y2 }, x)
     }

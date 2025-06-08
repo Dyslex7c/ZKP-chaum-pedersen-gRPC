@@ -1,7 +1,7 @@
 use rand::RngCore;
 use rand::rngs::OsRng;
 use num_bigint::{BigUint, RandBigInt};
-use num_traits::{One, Zero};
+use num_traits::{One};
 use num_integer::Integer;
 use sha2::{Sha256, Digest};
 
@@ -10,7 +10,7 @@ fn generate_random() -> u64 {
     rng.next_u64()
 }
 
-fn generate_safe_prime_pair(bits: usize) -> (BigUint, BigUint) {
+fn generate_safe_prime_pair(bits: u64) -> (BigUint, BigUint) {
     let mut rng = OsRng;
     loop {
         let mut p = rng.gen_biguint(bits - 1);
@@ -27,7 +27,7 @@ fn generate_safe_prime_pair(bits: usize) -> (BigUint, BigUint) {
     }
 }
 
-fn generate_prime(bits: usize) -> BigUint {
+fn generate_prime(bits: u64) -> BigUint {
     let mut rng = OsRng;
     loop {
         let mut candidate = rng.gen_biguint(bits);
@@ -43,7 +43,7 @@ fn generate_prime(bits: usize) -> BigUint {
 
 // find a generator for the multiplicative cyclic group of g mod q
 // for safe primes q = 2p+1, we need g^p != 1 (mod q) and g^2 != 1 (mod q)
-fn find_generator(p: &BigUint, q: &BigUint) {
+fn find_generator(p: &BigUint, q: &BigUint) -> BigUint {
     let mut rng = OsRng;
     loop {
         let g = rng.gen_biguint_range(&BigUint::from(2u32), &(q - 1u32));
@@ -98,7 +98,7 @@ fn is_probably_prime(n: &BigUint, rounds: usize) -> bool {
     true
 }
 
-pub fn generate_params(bits: usize) -> (BigUint, BigUint, BigUint) {
+pub fn generate_params(bits: u64) -> (BigUint, BigUint, BigUint) {
     let (p, q) = generate_safe_prime_pair(bits);
     let g = find_generator(&p, &q);
     (p, q, g)
@@ -140,7 +140,8 @@ pub fn compute_y1y2(x: &BigUint, g: &BigUint, b1: &BigUint, q: &BigUint) -> (Big
 
 pub fn compute_z(x: &BigUint, a: &BigUint, s: &BigUint, q: &BigUint) -> BigUint {
     let q_minus_1 = q - &BigUint::one();
-    (x + (a * s) % q_minus_1) % q_minus_1
+    let a_s_mod = (a * s) % &q_minus_1;
+    (x + a_s_mod) % q_minus_1
 }
 
 pub fn verify_proof(
