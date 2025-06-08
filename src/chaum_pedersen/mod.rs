@@ -7,27 +7,27 @@ pub use crypto::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicParameters {
-    pub p: BigUint,  // Sophie Germain prime
-    pub q: BigUint,  // Safe prime q = 2p + 1
-    pub g: BigUint,  // Generator
+    pub p: BigUint,  // Safe prime p = 2q + 1
+    pub q: BigUint,  // Sophie Germain prime (order of subgroup)
+    pub g: BigUint,  // Generator of subgroup of order q
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Commitment {
-    pub a1: BigUint,  // g^a mod q
-    pub b1: BigUint,  // g^b mod q  
-    pub c1: BigUint,  // g^(ab) mod q
+    pub a1: BigUint,  // g^a mod p
+    pub b1: BigUint,  // g^b mod p  
+    pub c1: BigUint,  // g^(ab) mod p
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProofChallenge {
-    pub y1: BigUint,  // g^x mod q
-    pub y2: BigUint,  // b1^x mod q
+    pub y1: BigUint,  // g^x mod p
+    pub y2: BigUint,  // b1^x mod p
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProofResponse {
-    pub z: BigUint,   // x + a*s mod (q-1)
+    pub z: BigUint,   // x + a*s mod q
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +44,7 @@ impl PublicParameters {
         Self { p, q, g }
     }
 }
-
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Prover {
     pub params: PublicParameters,
     pub secret_a: BigUint,
@@ -66,15 +66,14 @@ impl Prover {
             &self.params.g,
             &self.secret_a,
             &self.secret_b,
-            &self.params.q,
+            &self.params.p,
         );
         Commitment { a1, b1, c1 }
     }
 
     pub fn generate_proof_challenge(&self, commitment: &Commitment) -> (ProofChallenge, BigUint) {
         let x = generate_prover_secret(&self.params.q);
-        let (y1, y2) = compute_y1y2(&x, &self.params.g, &commitment.b1, &self.params.q);
-        //let challenge_hash = generate_challenge(&y1, &y2, &self.params.q);
+        let (y1, y2) = compute_y1y2(&x, &self.params.g, &commitment.b1, &self.params.p);
         
         (ProofChallenge { y1, y2 }, x)
     }
@@ -129,7 +128,7 @@ impl Verifier {
             &proof.commitment.c1,
             &proof.challenge_hash,
             &proof.response.z,
-            &self.params.q,
+            &self.params.p,
         )
     }
 }

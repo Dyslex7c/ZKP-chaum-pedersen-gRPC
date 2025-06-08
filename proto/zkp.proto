@@ -4,9 +4,7 @@ package zkp;
 
 service ChaumPedersenService {
     rpc InitializeProtocol(InitializeRequest) returns (InitializeResponse);
-    
-    rpc SendProofChallenge(ProofChallengeRequest) returns (ChallengeResponse);
-    
+    rpc SendCommitment(CommitmentRequest) returns (ChallengeResponse);
     rpc VerifyProof(VerifyProofRequest) returns (VerifyProofResponse);
 }
 
@@ -15,25 +13,31 @@ message InitializeRequest {
 }
 
 message InitializeResponse {
-    PublicParameters params = 1;
-    Commitment commitment = 2;
+    string session_id = 1;
+    PublicParameters params = 2;
 }
 
 message PublicParameters {
-    bytes p = 1;  // Sophie Germain prime (serialized BigUint)
-    bytes q = 2;  // Safe prime q = 2p + 1
+    bytes p = 1;  // Safe prime p = 2q + 1
+    bytes q = 2;  // Sophie Germain prime q
     bytes g = 3;  // Generator
 }
 
-message Commitment {
-    bytes a1 = 1;  // g^a mod q
-    bytes b1 = 2;  // g^b mod q
-    bytes c1 = 3;  // g^(ab) mod q
+message CommitmentRequest {
+    string session_id = 1;
+    Commitment commitment = 2;
+    ProofChallenge challenge_values = 3;
 }
 
-message ProofChallengeRequest {
-    bytes y1 = 1;  // g^x mod q
-    bytes y2 = 2;  // b1^x mod q
+message Commitment {
+    bytes a1 = 1;  // g^a mod p
+    bytes b1 = 2;  // g^b mod p
+    bytes c1 = 3;  // g^(ab) mod p
+}
+
+message ProofChallenge {
+    bytes y1 = 1;  // g^x mod p
+    bytes y2 = 2;  // b1^x mod p
 }
 
 message ChallengeResponse {
@@ -41,7 +45,8 @@ message ChallengeResponse {
 }
 
 message VerifyProofRequest {
-    bytes z = 1;  // x + a*s mod (q-1)
+    string session_id = 1;
+    bytes z = 2;  // x + a*s mod q
 }
 
 message VerifyProofResponse {

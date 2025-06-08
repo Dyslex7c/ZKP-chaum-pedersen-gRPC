@@ -4,6 +4,7 @@ use zkp_chaum_pedersen_grpc::chaum_pedersen;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use num_bigint::BigUint;
+use uuid::Uuid;
 
 pub mod zkp {
     tonic::include_proto!("zkp");
@@ -15,14 +16,13 @@ use zkp::*;
 use chaum_pedersen::{
     PublicParameters as CryptoPublicParameters,
     Commitment as CryptoCommitment,
-    Prover, Verifier, generate_challenge
+    generate_challenge, verify_proof
 };
 
 #[derive(Debug, Clone)]
-struct Session {
+struct VerifierSession {
     params: CryptoPublicParameters,
-    commitment: CryptoCommitment,
-    verifier: Verifier,
+    commitment: Option<CryptoCommitment>,
     y1: Option<BigUint>,
     y2: Option<BigUint>,
     challenge: Option<BigUint>,
@@ -30,7 +30,8 @@ struct Session {
 
 #[derive(Debug)]
 pub struct ChaumPedersenServer {
-    sessions: Arc<Mutex<HashMap<String, Session>>>,
+    // shared state across requests with thread-safe access
+    sessions: Arc<Mutex<HashMap<String, VerifierSession>>>,
 }
 
 impl ChaumPedersenServer {
@@ -40,10 +41,8 @@ impl ChaumPedersenServer {
         }
     }
 
-    fn generate_session_id() -> String {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        (0..16).map(|_| rng.gen_range(0..16)).map(|x| format!("{:x}", x)).collect()
+    fn generate_session_id(&self) -> String {
+        Uuid::new_v4().to_string()
     }
 }
 
@@ -61,17 +60,11 @@ impl ChaumPedersenService for ChaumPedersenServer {
         }
 
         let params = CryptoPublicParameters::new(bit_size);
+        let session_id = self.generate_session_id();
         
-        let prover = Prover::new(params.clone());
-        let commitment = prover.generate_commitment();
-        
-        let verifier = Verifier::new(params.clone());
-        
-        let session_id = Self::generate_session_id();
-        let session = Session {
+        let session = VerifierSession {
             params: params.clone(),
-            commitment: commitment.clone(),
-            verifier,
+            commitment: None,
             y1: None,
             y2: None,
             challenge: None,
@@ -88,54 +81,55 @@ impl ChaumPedersenService for ChaumPedersenServer {
             g: params.g.to_bytes_be(),
         };
 
-        let proto_commitment = Commitment {
-            a1: commitment.a1.to_bytes_be(),
-            b1: commitment.b1.to_bytes_be(),
-            c1: commitment.c1.to_bytes_be(),
-        };
-
         let response = InitializeResponse {
+            session_id: session_id.clone(),
             params: Some(proto_params),
-            commitment: Some(proto_commitment),
         };
 
         println!("Protocol initialized with session ID: {}", session_id);
         Ok(Response::new(response))
     }
 
-    async fn send_proof_challenge(
+    async fn send_commitment(
         &self,
-        request: Request<ProofChallengeRequest>,
+        request: Request<CommitmentRequest>,
     ) -> Result<Response<ChallengeResponse>, Status> {
         let req = request.into_inner();
+        let session_id = req.session_id;
         
-        let y1 = BigUint::from_bytes_be(&req.y1);
-        let y2 = BigUint::from_bytes_be(&req.y2);
+        let commitment_proto = req.commitment.ok_or_else(|| {
+            Status::invalid_argument("Missing commitment")
+        })?;
+        
+        let challenge_proto = req.challenge_values.ok_or_else(|| {
+            Status::invalid_argument("Missing challenge values")
+        })?;
 
-        //let challenge = generate_challenge(&y1, &y2, &BigUint::from(2u32).pow(256));
-        
-        let session_id = {
-            let sessions = self.sessions.lock().unwrap();
-            sessions.keys().next().cloned()
+        let commitment = CryptoCommitment {
+            a1: BigUint::from_bytes_be(&commitment_proto.a1),
+            b1: BigUint::from_bytes_be(&commitment_proto.b1),
+            c1: BigUint::from_bytes_be(&commitment_proto.c1),
         };
 
-        if let Some(session_id) = session_id {
-            {
-                let mut sessions = self.sessions.lock().unwrap();
-                if let Some(session) = sessions.get_mut(&session_id) {
-                    session.y1 = Some(y1.clone());
-                    session.y2 = Some(y2.clone());
-                    
-                    let proper_challenge = generate_challenge(&y1, &y2, &session.params.q);
-                    session.challenge = Some(proper_challenge.clone());
-                    
-                    let response = ChallengeResponse {
-                        challenge: proper_challenge.to_bytes_be(),
-                    };
+        let y1 = BigUint::from_bytes_be(&challenge_proto.y1);
+        let y2 = BigUint::from_bytes_be(&challenge_proto.y2);
 
-                    println!("Generated challenge for session: {}", session_id);
-                    return Ok(Response::new(response));
-                }
+        {
+            let mut sessions = self.sessions.lock().unwrap();
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.commitment = Some(commitment);
+                session.y1 = Some(y1.clone());
+                session.y2 = Some(y2.clone());
+                
+                let challenge = generate_challenge(&y1, &y2, &session.params.q);
+                session.challenge = Some(challenge.clone());
+                
+                let response = ChallengeResponse {
+                    challenge: challenge.to_bytes_be(),
+                };
+
+                println!("Generated challenge for session: {}", session_id);
+                return Ok(Response::new(response));
             }
         }
 
@@ -147,59 +141,56 @@ impl ChaumPedersenService for ChaumPedersenServer {
         request: Request<VerifyProofRequest>,
     ) -> Result<Response<VerifyProofResponse>, Status> {
         let req = request.into_inner();
+        let session_id = req.session_id;
         let z = BigUint::from_bytes_be(&req.z);
 
-        let session_id = {
+        let verification_result = {
             let sessions = self.sessions.lock().unwrap();
-            sessions.keys().next().cloned()
-        };
-
-        if let Some(session_id) = session_id {
-            let verification_result = {
-                let sessions = self.sessions.lock().unwrap();
-                if let Some(session) = sessions.get(&session_id) {
-                    if let (Some(y1), Some(y2), Some(challenge)) = (&session.y1, &session.y2, &session.challenge) {
-                        // Perform verification
-                        let verification = chaum_pedersen::verify_proof(
-                            &session.params.g,
-                            &session.commitment.b1,
-                            y1,
-                            y2,
-                            &session.commitment.a1,
-                            &session.commitment.c1,
-                            challenge,
-                            &z,
-                            &session.params.q,
-                        );
-                        
-                        Some(verification)
-                    } else {
-                        None
-                    }
+            if let Some(session) = sessions.get(&session_id) {
+                if let (Some(commitment), Some(y1), Some(y2), Some(challenge)) = 
+                    (&session.commitment, &session.y1, &session.y2, &session.challenge) {
+                    
+                    let verification = verify_proof(
+                        &session.params.g,
+                        &commitment.b1,
+                        y1,
+                        y2,
+                        &commitment.a1,
+                        &commitment.c1,
+                        challenge,
+                        &z,
+                        &session.params.p,
+                    );
+                    
+                    Some(verification)
                 } else {
                     None
                 }
-            };
-
-            match verification_result {
-                Some(true) => {
-                    println!("Proof verified successfully for session: {}", session_id);
-                    Ok(Response::new(VerifyProofResponse {
-                        verified: true,
-                        message: "Proof verified successfully".to_string(),
-                    }))
-                }
-                Some(false) => {
-                    println!("Proof verification failed for session: {}", session_id);
-                    Ok(Response::new(VerifyProofResponse {
-                        verified: false,
-                        message: "Proof verification failed".to_string(),
-                    }))
-                }
-                None => Err(Status::invalid_argument("Invalid session state")),
+            } else {
+                None
             }
-        } else {
-            Err(Status::not_found("Session not found"))
+        };
+
+        match verification_result {
+            Some(true) => {
+                println!("Proof verified successfully for session: {}", session_id);
+                {
+                    let mut sessions = self.sessions.lock().unwrap();
+                    sessions.remove(&session_id);
+                }
+                Ok(Response::new(VerifyProofResponse {
+                    verified: true,
+                    message: "Zero-knowledge proof verified successfully!".to_string(),
+                }))
+            }
+            Some(false) => {
+                println!("Proof verification failed for session: {}", session_id);
+                Ok(Response::new(VerifyProofResponse {
+                    verified: false,
+                    message: "Zero-knowledge proof verification failed!".to_string(),
+                }))
+            }
+            None => Err(Status::invalid_argument("Invalid session state or session not found")),
         }
     }
 }
@@ -209,8 +200,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50051".parse()?;
     let server = ChaumPedersenServer::new();
 
-    println!("Chaum-Pedersen gRPC Server listening on {}", addr);
-
+    println!("Listening on {}", addr);
+    // starting the gRPC server listening for requests
     Server::builder()
         .add_service(ChaumPedersenServiceServer::new(server))
         .serve(addr)
