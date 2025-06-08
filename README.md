@@ -6,10 +6,11 @@ This entire implementation provides a distributed architecture where the prover 
 
 Given public values:
 - p: A safe prime (p = 2q + 1)
-- q: A Sophie Germain prime (order of the subgroup)
-- g: A generator of the subgroup of order q
-- a₁ = g^a mod p and b₁ = g^b mod p (commitments)
-- c₁ = g^(ab) mod p (product commitment)
+- q: A Sophie Germain prime (order of the multiplicative cyclic group G)
+- g: A generator of the multiplicative cyclic group G of order q
+- a₁ = g^a mod p and b₁ = g^b mod p (commitments), c₁ = g^(ab) mod p (product commitment)
+
+The values <g, a₁, b₁, c₁> are publicly available to both the prover and the verifier.
 
 ## Protocol Flow
 
